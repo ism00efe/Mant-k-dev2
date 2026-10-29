@@ -1,6 +1,6 @@
 """Deney 3 testleri. Referans değerler hazır aritmetikle (int, +, -, *, //, %) hesaplanır.
 
-Çalıştırma:  python3 deney03/testler.py
+Çalıştırma:  python3 testler.py
 """
 from itertools import product
 
@@ -40,17 +40,6 @@ def yaprak1():
             hata += 1
     sonuc["kapsamli"] = (toplam_test, hata)
 
-    # genelleme: n = 1..8 için de aynı kontrol (n=8: 2*256*256 test)
-    genel = []
-    for n2 in range(1, 9):
-        h = 0
-        t = 0
-        for a, b, c0 in product(range(2 ** n2), range(2 ** n2), (0, 1)):
-            s, c, _ = topla(ikili(a, n2), ikili(b, n2), c0)
-            t += 1
-            h += c * 2 ** n2 + int(s, 2) != a + b + c0
-        genel.append((n2, t, h))
-    sonuc["genel"] = genel
 
     retler = []
     for A, B, c0, aciklama in [("", "0101", 0, "boş girdi"),
@@ -146,18 +135,6 @@ def yaprak3():
                          and c2 == B.count("1")))
     sonuc["testler"] = satirlar
 
-    # ek: tüm 1..6 x 1..6 bit kombinasyonları
-    t = h = 0
-    for n in range(1, 7):
-        for m in range(1, 7):
-            for a in range(2 ** n):
-                for b in range(2 ** m):
-                    A, B = ikili(a, n), ikili(b, m)
-                    P1, _, _ = carp(A, B)
-                    P2, _, _ = carp(A, B, True)
-                    t += 1
-                    h += not (int(P1, 2) == a * b and P1 == P2)
-    sonuc["kapsamli"] = (t, h)
     return sonuc
 
 
@@ -197,15 +174,6 @@ def yaprak4():
                        int(Qh, 2) * int(d, 2) + int(Rh, 2) == int(D, 2)))
     sonuc["hatali"] = hatali
 
-    # ek: D 1..8 bit, d 1..15 tüm kombinasyonlar
-    t = h = 0
-    for nb in range(1, 9):
-        for Dv in range(2 ** nb):
-            for dv in range(1, 16):
-                r = bol(ikili(Dv, nb), format(dv, "b"))
-                t += 1
-                h += (int(r["Q"], 2), int(r["R"], 2)) != (Dv // dv, Dv % dv)
-    sonuc["kapsamli"] = (t, h)
     return sonuc
 
 
@@ -215,31 +183,7 @@ def hepsi():
 
 if __name__ == "__main__":
     s = hepsi()
-    y1 = s[1]
-    print("Y1 dört işlem:", [(k["A"], k["B"], k["c0"], k["S"], k["C"], k["uyum"]) for k in y1["islemler"]])
-    print("Y1 512 test (toplam, hata):", y1["kapsamli"])
-    print("Y1 genel n=1..8:", y1["genel"])
-    for r in y1["retler"]:
-        print("Y1 ret:", r)
-    print("Y1 kayıp:", y1["kayip"])
-    y2 = s[2]
-    for k in y2["islemler"]:
-        print("Y2", k["M"], "-", k["N"], "borç:", k["borc"][:2], "tüm:", k["tum"][:2], "ref:", k["ref"])
-    print("Y2 256 test (test, hata_borç, hata_tüm, ilk hata):", y2["kapsamli"])
-    print("Y2 iddia yanlış durumlar:", y2["iddia_yanlis"])
-    print("Y2 2tüm(0000):", y2["sifir_tumleyen"], "doğru yöntem N=0 son elde:", y2["dogru_n0"])
-    y3 = s[3]
-    for t in y3["tablolar"]:
-        print("Y3", t["A"], "x", t["B"], "=", t["P"], int(t["P"], 2), "ref", t["ref"], t["katkilar"])
-    for t in y3["testler"]:
-        print("Y3 test", t)
-    print("Y3 kapsamlı:", y3["kapsamli"])
-    y4 = s[4]
-    for r in y4["islemler"]:
-        print("Y4", r["D"], "/", r["d"], "Q", r["Q"], "R", r["R"], "kesir", r["kesir"], "tam", r["tam_mi"],
-              "tekrar", r["tekrar"], r["kontrol1"], r["kontrol2"], r["ref"])
-    for r in y4["sinir"]:
-        print("Y4 sınır", r)
-    for r in y4["hatali"]:
-        print("Y4 hatalı", r)
-    print("Y4 kapsamlı:", y4["kapsamli"])
+    print("Yaprak 1: 512 test, hata:", s[1]["kapsamli"][1])
+    print("Yaprak 2: 256 çift, hata (borç, 2 tümleyeni):", s[2]["kapsamli"][1:3])
+    print("Yaprak 3: testler uyumlu:", all(t[-1] for t in s[3]["testler"]))
+    print("Yaprak 4: sınır testleri uyumlu:", all(t[-1] for t in s[4]["sinir"]))

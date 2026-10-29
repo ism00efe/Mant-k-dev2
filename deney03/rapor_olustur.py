@@ -1,10 +1,10 @@
 """Ek cevap dosyasını (deney03_cevaplar.pdf) ve doldurulmuş deney yaprağını üretir.
 
-Çalıştırma:  python3 deney03/rapor_olustur.py [orijinal_deney_03.pdf]
+Çalıştırma:  python3 rapor_olustur.py [orijinal_deney_03.pdf]
 """
 import os
-from html import escape
 import sys
+from html import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -16,376 +16,414 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (KeepTogether, PageBreak, Paragraph, Preformatted,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
-from testler import hepsi
+import kisisel
 from kisa_cevaplar import KISA_CEVAPLAR
+from testler import hepsi
 
 BURASI = os.path.dirname(os.path.abspath(__file__))
-FONT_DIZIN = "/usr/share/fonts/truetype/dejavu/"
-pdfmetrics.registerFont(TTFont("DV", FONT_DIZIN + "DejaVuSans.ttf"))
-pdfmetrics.registerFont(TTFont("DVB", FONT_DIZIN + "DejaVuSans-Bold.ttf"))
-pdfmetrics.registerFont(TTFont("DVM", FONT_DIZIN + "DejaVuSansMono.ttf"))
+DV = "/usr/share/fonts/truetype/dejavu/"
+pdfmetrics.registerFont(TTFont("DV", DV + "DejaVuSans.ttf"))
+pdfmetrics.registerFont(TTFont("DVB", DV + "DejaVuSans-Bold.ttf"))
+pdfmetrics.registerFont(TTFont("DVM", DV + "DejaVuSansMono.ttf"))
 pdfmetrics.registerFontFamily("DV", normal="DV", bold="DVB", italic="DV", boldItalic="DVB")
 
-GOVDE = ParagraphStyle("govde", fontName="DV", fontSize=9.5, leading=13, spaceAfter=4)
-KUCUK = ParagraphStyle("kucuk", parent=GOVDE, fontSize=8.5, leading=11)
-BASLIK = ParagraphStyle("baslik", fontName="DVB", fontSize=15, leading=19, spaceAfter=6)
-ALT = ParagraphStyle("alt", fontName="DVB", fontSize=11, leading=14, spaceBefore=8, spaceAfter=4,
-                     textColor=colors.HexColor("#1F3A5F"))
-KAPAK = ParagraphStyle("kapak", fontName="DVB", fontSize=20, leading=26, alignment=TA_CENTER)
-KOD = ParagraphStyle("kod", fontName="DVM", fontSize=6.6, leading=8.2)
+LACIVERT = colors.HexColor("#1F3A5F")
+CERCEVE = colors.HexColor("#9AA7B6")
+GOVDE = ParagraphStyle("govde", fontName="DV", fontSize=9.5, leading=13.5, spaceAfter=5)
+KUCUK = ParagraphStyle("kucuk", parent=GOVDE, fontSize=8.5, leading=11.5)
+HUCRE = ParagraphStyle("hucre", fontName="DV", fontSize=8, leading=9.5, alignment=TA_CENTER)
+HUCRE_B = ParagraphStyle("hucreb", parent=HUCRE, fontName="DVB")
+HUCRE_SOL = ParagraphStyle("hucresol", parent=HUCRE, alignment=0)
+BASLIK = ParagraphStyle("baslik", fontName="DVB", fontSize=15, leading=19, spaceAfter=2)
+ALTBASLIK = ParagraphStyle("altbaslik", fontName="DV", fontSize=10.5, leading=14, spaceAfter=8,
+                           textColor=colors.HexColor("#4A5568"))
+ALT = ParagraphStyle("alt", fontName="DVB", fontSize=11, leading=14, spaceBefore=9, spaceAfter=4,
+                     textColor=LACIVERT)
+KOD = ParagraphStyle("kod", fontName="DVM", fontSize=7, leading=8.6)
 
 
 def P(t, s=GOVDE):
     return Paragraph(t, s)
 
 
-def tablo(veri, gen=None, baslik_satir=1, kucuk=False, sol=False):
-    fs = 7.5 if kucuk else 8.5
-    t = Table(veri, colWidths=gen, hAlign="LEFT" if sol else "CENTER", repeatRows=baslik_satir)
-    stil = [("FONT", (0, 0), (-1, -1), "DV", fs),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#8899AA")),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+def h(t, kalin=False):
+    """Tablo hücresi (alt/üst simge yazılabilsin diye Paragraph)."""
+    return Paragraph(str(t), HUCRE_B if kalin else HUCRE)
+
+
+def tablo(veri, gen, baslik_satir=1):
+    veri = [[c if isinstance(c, Paragraph) else h(c, r < baslik_satir) for c in satir]
+            for r, satir in enumerate(veri)]
+    t = Table(veri, colWidths=gen, repeatRows=baslik_satir)
+    stil = [("GRID", (0, 0), (-1, -1), 0.4, CERCEVE),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 1.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5)]
+            ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5)]
     if baslik_satir:
-        stil += [("BACKGROUND", (0, 0), (-1, baslik_satir - 1), colors.HexColor("#DCE6F0")),
-                 ("FONT", (0, 0), (-1, baslik_satir - 1), "DVB", fs)]
+        stil.append(("BACKGROUND", (0, 0), (-1, baslik_satir - 1), colors.HexColor("#E3EAF2")))
     t.setStyle(TableStyle(stil))
     return t
 
 
+def isaretli(x):
+    """Onlu sayıyı gerçek eksi işaretiyle yazar."""
+    return f"−{-x}" if x < 0 else str(x)
+
+
 def sutun_kaydi(kayit, satir_adlari):
-    """kayıt satırları (i, x, y, giren, sonuç, çıkan) -> sütunları bit konumu olan tablo."""
+    """Kayıt satırları (i, x, y, giren, sonuç, çıkan): sütunlar bit konumu, satırlar adımlar."""
     n = len(kayit)
-    bas = ["Konum i"] + [str(i) for i in range(n - 1, -1, -1)]
-    agirlik = ["Ağırlık 2^i"] + [str(2 ** i) for i in range(n - 1, -1, -1)]
-    satirlar = [bas, agirlik]
+    sira = range(n - 1, -1, -1)
+    veri = [["Konum i"] + [str(i) for i in sira],
+            ["Ağırlık 2<sup>i</sup>"] + [str(2 ** i) for i in sira]]
     for k, ad in enumerate(satir_adlari):
-        satirlar.append([ad] + [str(kayit[i][k + 1]) for i in range(n - 1, -1, -1)])
-    return tablo(satirlar, gen=[3.4 * cm] + [1.1 * cm] * n, kucuk=True)
+        veri.append([ad] + [str(kayit[i][k + 1]) for i in sira])
+    t = tablo(veri, [3.3 * cm] + [1.1 * cm] * n)
+    t.setStyle(TableStyle([("BACKGROUND", (0, 1), (0, -1), colors.HexColor("#F3F6F9"))]))
+    return t
+
+
+def kayit_blogu(baslik, kayit, adlar):
+    return KeepTogether([P(baslik, KUCUK), sutun_kaydi(kayit, adlar), Spacer(1, 5)])
 
 
 # ---------------------------------------------------------------------------
 
 def yaprak1_bolum(s):
-    h = [P("Deney Yaprağı 1 — Elde adımlarını gösteren ikili toplayıcı", BASLIK)]
-    h.append(P("1. Tek sütunun sonuç/elde tablosu ve algoritma", ALT))
-    h.append(P("Bir sütunda iki bit (a, b) ve gelen elde c toplanır; 0–3 arası değer iki bitle "
-               "(çıkan elde, sonuç) yazılır. Mantık ifadeleri: <b>S = a ⊕ b ⊕ c</b>, "
-               "<b>C<sub>out</sub> = a·b + c·(a ⊕ b)</b>."))
-    veri = [["a", "b", "c (gelen)", "a+b+c", "S (sonuç)", "C_out (çıkan)"]]
-    for a, b, c, t, co in s["tablo"]:
-        veri.append([a, b, c, a + b + c, t, co])
-    h.append(tablo(veri, gen=[1.4 * cm] * 3 + [1.6 * cm, 2 * cm, 2.4 * cm]))
-    h.append(Spacer(1, 4))
-    h.append(P("Algoritma (n bit, sağdan sola): c ← başlangıç eldesi; i = 0 … n−1 için "
-               "(S<sub>i</sub>, c) ← tam_toplayıcı(A<sub>i</sub>, B<sub>i</sub>, c) ve kayda "
-               "(2<sup>i</sup>, A<sub>i</sub>, B<sub>i</sub>, gelen c, S<sub>i</sub>, çıkan c) yazılır; "
-               "döngü sonundaki c son eldedir. Kod: <i>ikili.py → tam_toplayici(), topla()</i> (Ek A)."))
+    b = [P("Deney Yaprağı 1", BASLIK), P("Elde adımlarını gösteren ikili toplayıcı", ALTBASLIK)]
+    b.append(P("1. Bir sütunun sonuç ve elde tablosu", ALT))
+    b.append(P("Her sütunda iki biti (a, b) ve sağdan gelen eldeyi (c) topluyorum. Toplam 0 ile 3 "
+               "arasında olduğu için iki bitle yazılıyor: soldaki bit çıkan elde, sağdaki bit sonuç biti. "
+               "Tabloyu kurduktan sonra şu ifadeleri çıkardım: S = a ⊕ b ⊕ c ve "
+               "C<sub>out</sub> = a·b + c·(a ⊕ b)."))
+    veri = [["a", "b", "c (gelen)", "a + b + c", "S (sonuç)", "C<sub>out</sub> (çıkan)"]]
+    veri += [list(st[:3]) + [sum(st[:3])] + list(st[3:]) for st in s["tablo"]]
+    b.append(tablo(veri, [1.4 * cm] * 2 + [2 * cm, 2 * cm, 2 * cm, 2.6 * cm]))
+    b.append(Spacer(1, 6))
+    b.append(P("Algoritmayı sağdan sola çalışacak şekilde yazdım. Elde, başlangıç eldesiyle başlıyor; "
+               "her i konumunda A<sub>i</sub>, B<sub>i</sub> ve gelen elde tam toplayıcıya giriyor, çıkan "
+               "elde bir sonraki sütuna geçiyor. Her adımda ağırlığı (2<sup>i</sup>), girdi bitlerini, "
+               "gelen eldeyi, sonuç bitini ve çıkan eldeyi kaydediyorum. Döngü bittiğinde elimde kalan elde "
+               "son eldedir. Kod Ek A'da: tam_toplayici() ve topla()."))
 
-    h.append(P("2. Dört işlem — programdan önce yazılan beklenen sonuçlar ve işlem kayıtları", ALT))
-    veri = [["İşlem", "c0", "Beklenen C S", "Program: S", "Son elde", "Değer C·16+S", "Uyum"]]
+    b.append(P("2. Dört işlem", ALT))
+    b.append(P("Programı çalıştırmadan önce sonuçları elle hesapladım (“Elle beklenen” sütunu), sonra "
+               "program çıktısıyla karşılaştırdım. İki sütunda da önce son elde, sonra 4 bitlik toplam yazıyor."))
+    veri = [["İşlem", "Başl. elde", "Elle beklenen", "Program", "Değer: C·16 + S", "Uyuyor mu?"]]
     for k in s["islemler"]:
         A, B = k["A"], k["B"]
-        beklenen = f"{k['beklenen'][1]} {k['beklenen'][0]}"
         deger = k["C"] * 16 + int(k["S"], 2)
-        veri.append([f"{A} + {B}", k["c0"], beklenen, k["S"], k["C"],
-                     f"{deger} = {int(A, 2)}+{int(B, 2)}+{k['c0']}", "✓" if k["uyum"] else "✗"])
-    h.append(tablo(veri, gen=[2.6 * cm, 0.9 * cm, 2.6 * cm, 2 * cm, 1.6 * cm, 3.4 * cm, 1.1 * cm]))
-    h.append(Spacer(1, 4))
+        veri.append([f"{A} + {B}", k["c0"], f"{k['beklenen'][1]} {k['beklenen'][0]}",
+                     f"{k['C']} {k['S']}", f"{deger} ({int(A, 2)} + {int(B, 2)} + {k['c0']})",
+                     "evet" if k["uyum"] else "hayır"])
+    b.append(tablo(veri, [2.7 * cm, 1.7 * cm, 2.4 * cm, 2 * cm, 3.6 * cm, 1.8 * cm]))
+    b.append(Spacer(1, 7))
     for k in s["islemler"]:
-        h.append(KeepTogether([
-            P(f"<b>{k['A']} + {k['B']}, başlangıç eldesi {k['c0']}</b> → toplam {k['S']}, "
-              f"son elde {k['C']}", KUCUK),
-            sutun_kaydi(k["kayit"], ["A_i", "B_i", "gelen elde", "sonuç S_i", "çıkan elde"]),
-            Spacer(1, 5)]))
+        b.append(kayit_blogu(f"<b>{k['A']} + {k['B']}</b>, başlangıç eldesi {k['c0']}: toplam {k['S']}, "
+                             f"son elde {k['C']}", k["kayit"],
+                             ["A<sub>i</sub>", "B<sub>i</sub>", "gelen elde", "sonuç S<sub>i</sub>", "çıkan elde"]))
 
     t, hata = s["kapsamli"]
-    h.append(P("3. 512 testlik kapsamlı sınama", ALT))
-    h.append(P(f"Tüm A, B ∈ {{0000 … 1111}} ve c0 ∈ {{0, 1}}: 16 × 16 × 2 = <b>{t}</b> test. "
-               f"Her testte n bitlik çıktı ile son eldenin birlikte taşıdığı değer "
-               f"<b>C·2<sup>4</sup> + S</b> onlu referans <b>A + B + c0</b> (hazır aritmetik) ile "
-               f"karşılaştırıldı. Sonuç: <b>{t} test, {hata} hata</b>."))
-    g = "; ".join(f"n={n}: {tt} test, {hh} hata" for n, tt, hh in s["genel"])
-    h.append(P(f"Ek denetim (aynı kod, farklı n): {g}.", KUCUK))
+    b.append(P("3. 512 test", ALT))
+    b.append(P(f"0000 ile 1111 arasındaki bütün A, B çiftlerini iki başlangıç eldesiyle denedim: "
+               f"16 × 16 × 2 = {t} test. Her testte programın verdiği değeri (C·2<sup>4</sup> + S), "
+               f"Python'un normal toplamasıyla bulduğum A + B + c0 ile karşılaştırdım. "
+               f"<b>{t} testin hepsi tuttu, hata sayısı {hata}.</b>"))
 
-    h.append(P("4. Ret kuralları ve son eldenin anlamı", ALT))
-    h.append(P("Kurallar: (i) A veya B boş dizgi ise ret; (ii) 0/1 dışında karakter içeriyorsa ret; "
-               "(iii) A ve B uzunlukları farklı ise ret; (iv) başlangıç eldesi 0/1 değilse ret. "
-               "Hepsi <i>ValueError</i> ile açık mesaj verir."))
-    veri = [["Durum", "A", "B", "c0", "Gözlenen"]]
+    b.append(P("4. Hatalı girdiler ve son eldenin anlamı", ALT))
+    b.append(P("Şu durumlarda fonksiyon girdiyi reddedip ne olduğunu söyleyen bir hata mesajı veriyor: "
+               "A veya B boşsa, içinde 0 ve 1 dışında bir karakter varsa, A ile B'nin uzunlukları farklıysa ve "
+               "başlangıç eldesi 0 ya da 1 değilse. Her biri için bir test yaptım:"))
+    veri = [["Durum", "A", "B", "Başl. elde", "Programın cevabı"]]
     for ad, A, B, c0, sonuc in s["retler"]:
-        veri.append([ad, repr(A), B, c0, Paragraph(sonuc, KUCUK)])
-    h.append(tablo(veri, gen=[3.6 * cm, 1.4 * cm, 1.4 * cm, 0.9 * cm, 8.6 * cm]))
-    h.append(Spacer(1, 4))
-    h.append(P("n bitlik toplayıcının gerçek sonucu <b>A + B + c0 = C·2<sup>n</sup> + S</b>'dir; en büyük değer "
-               "(2<sup>n</sup>−1)+(2<sup>n</sup>−1)+1 = 2<sup>n+1</sup>−1 olduğundan n+1 bit gerekir ve "
-               "(n+1). bit son eldedir. Son elde yok sayılırsa kalan yalnızca S = (A+B+c0) mod 2<sup>n</sup> "
-               "olur; kaybedilen değer <b>C·2<sup>n</sup></b>, yani C = 1 iken tam olarak "
-               "<b>2<sup>n</sup></b> (n = 4 için 16)."))
-    veri = [["İşlem", "S", "Son elde", "Gerçek", "Elde atılınca", "Kayıp"]]
+        veri.append([Paragraph(ad, HUCRE_SOL), A if A else "(boş)", B, c0,
+                     Paragraph(escape(sonuc), HUCRE_SOL)])
+    b.append(tablo(veri, [3.4 * cm, 1.5 * cm, 1.5 * cm, 1.7 * cm, 7.8 * cm]))
+    b.append(Spacer(1, 6))
+    b.append(P("n bitlik bir toplamada gerçek sonuç A + B + c0 = C·2<sup>n</sup> + S olur. En büyük toplam "
+               "(2<sup>n</sup> − 1) + (2<sup>n</sup> − 1) + 1 = 2<sup>n+1</sup> − 1 olduğu için sonucu yazmak "
+               "n + 1 bit gerektiriyor; bu fazladan bit son eldedir. Son eldeyi yok sayarsak elimizde yalnızca "
+               "S kalıyor ve <b>C·2<sup>n</sup></b> kadar değer kayboluyor. C = 1 olduğunda kayıp tam olarak "
+               "2<sup>n</sup>, yani n = 4 için 16."))
+    veri = [["İşlem", "S", "Son elde", "Gerçek toplam", "Elde atılınca", "Kayıp"]]
     for A, B, c0, S, C, gercek, kalan, kayip in s["kayip"]:
-        veri.append([f"{A}+{B}+{c0}", S, C, gercek, kalan, f"{kayip} = 2^4"])
-    h.append(tablo(veri, gen=[3.4 * cm, 1.6 * cm, 1.6 * cm, 1.6 * cm, 2.4 * cm, 2 * cm]))
-    h.append(P("Sınır örneği: 1111 + 0001 = 1 0000 (16); elde atılınca 0000 = 0 kalır. Bu, iki pozitif "
-               "sayının toplamının sıfır görünmesi demektir; işaretsiz taşma (overflow) göstergesi son eldedir.",
-               KUCUK))
-    return h
-
-
-def cikarma_kaydi(baslik, kayit, adlar):
-    return KeepTogether([P(baslik, KUCUK), sutun_kaydi(kayit, adlar), Spacer(1, 4)])
+        veri.append([f"{A} + {B} + {c0}", S, C, gercek, kalan, f"{kayip} = 2<sup>4</sup>"])
+    b.append(tablo(veri, [3.4 * cm, 1.6 * cm, 1.6 * cm, 2.4 * cm, 2.4 * cm, 2 * cm]))
+    b.append(Spacer(1, 4))
+    b.append(P("Sınır örneği olarak 1111 + 0001'i seçtim: doğru sonuç 1 0000 (16), ama son elde atılınca "
+               "0000 kalıyor. Yani iki pozitif sayının toplamı sıfır gibi görünüyor. İşaretsiz toplamada "
+               "taşma olduğunu bize son elde gösteriyor.", KUCUK))
+    return b
 
 
 def yaprak2_bolum(s):
-    h = [PageBreak(), P("Deney Yaprağı 2 — Borç alma ve 2 tümleyeniyle çıkarma", BASLIK)]
-    h.append(P("1. İki bağımsız algoritma", ALT))
-    h.append(P("<b>(a) Borç alarak doğrudan çıkarma</b> (<i>cikar_borc</i>): sağdan sola her sütunda "
-               "fark biti <b>D = m ⊕ n ⊕ b</b>, çıkan borç <b>B<sub>out</sub> = m'·n + (m ⊕ n)'·b</b>. "
-               "Son borç 0 ise M ≥ N ve sonuç fark dizisidir (fark 0000 ise sonuç “0”, işaretsiz). "
-               "Son borç 1 ise M &lt; N: işaret “−”, büyüklük aynı yöntemle N − M hesaplanarak bulunur."))
-    h.append(P("<b>(b) 2 tümleyeniyle çıkarma</b> (<i>cikar_tumleyen</i>): M − N = M + N' + 1. N'nin bitleri "
-               "terslenir, “+1” başlangıç eldesi olarak toplayıcıya girer (kendi tam toplayıcı zinciri; "
-               "<i>cikar_borc</i>'u çağırmaz). Son elde 1 → M ≥ N, sonuç toplamın kendisi (0000 ise “0”). "
-               "Son elde 0 → M &lt; N, büyüklük = toplamın 2 tümleyeni (tersle + 1)."))
+    b = [PageBreak(), P("Deney Yaprağı 2", BASLIK), P("Borç alma ve 2 tümleyeniyle çıkarma", ALTBASLIK)]
+    b.append(P("1. İki ayrı algoritma", ALT))
+    b.append(P("<b>Borç alarak çıkarma (cikar_borc):</b> Sağdan sola her sütunda fark biti "
+               "D = m ⊕ n ⊕ b, çıkan borç B<sub>out</sub> = m'·n + (m ⊕ n)'·b. İşlem bitince borç kalmadıysa "
+               "M ≥ N'dir ve fark doğrudan sonuçtur. Fark 0000 çıkarsa sonucu işaretsiz “0” olarak veriyorum. "
+               "Son borç 1 ise M &lt; N'dir; sonuca eksi işareti koyuyorum ve büyüklüğü aynı yöntemle "
+               "N − M hesaplayarak buluyorum."))
+    b.append(P("<b>2 tümleyeniyle çıkarma (cikar_tumleyen):</b> M − N = M + N' + 1. N'nin bitlerini "
+               "ters çeviriyorum ve +1'i toplayıcıya başlangıç eldesi olarak veriyorum. Bu fonksiyonun kendi "
+               "toplayıcı döngüsü var, cikar_borc'u hiç çağırmıyor. Son elde 1 ise M ≥ N ve sonuç toplamın "
+               "kendisi. Son elde 0 ise M &lt; N; büyüklüğü bulmak için toplamın 2 tümleyenini alıyorum "
+               "(bitleri ters çevirip 1 ekliyorum)."))
 
-    h.append(P("2. Beş işlemin iki yöntemle çözümü", ALT))
-    veri = [["İşlem", "Onlu", "Borç: son borç", "Borç: sonuç", "2 tüm.: son elde", "2 tüm.: sonuç", "Ref."]]
+    b.append(P("2. Beş işlem", ALT))
+    veri = [["İşlem", "Onlu", "Borç yöntemi:<br/>son borç", "Borç yöntemi:<br/>sonuç",
+             "2 tümleyeni:<br/>son elde", "2 tümleyeni:<br/>sonuç", "Doğru<br/>sonuç"]]
+    gost = lambda i, x: "0" if i == "0" else ("−" if i == "-" else "+") + x
     for k in s["islemler"]:
         i1, b1, k1 = k["borc"]
         i2, b2, k2 = k["tum"]
-        gost = lambda i, b: "0" if i == "0" else ("−" if i == "-" else "+") + b
         veri.append([f"{k['M']} − {k['N']}", f"{int(k['M'], 2)} − {int(k['N'], 2)}", k1["son_borc"],
-                     gost(i1, b1), k2["son_elde"], gost(i2, b2), k["ref"]])
-    h.append(tablo(veri, gen=[2.6 * cm, 1.8 * cm, 2.3 * cm, 2.2 * cm, 2.6 * cm, 2.3 * cm, 1.2 * cm]))
-    h.append(Spacer(1, 4))
+                     gost(i1, b1), k2["son_elde"], gost(i2, b2), isaretli(k["ref"])])
+    b.append(tablo(veri, [2.5 * cm, 1.8 * cm, 2.2 * cm, 2.2 * cm, 2.2 * cm, 2.2 * cm, 1.6 * cm]))
+    b.append(Spacer(1, 5))
+    b.append(P("Her işlemin ara kayıtları aşağıda. Tablolarda sütunlar bit konumlarını, satırlar o "
+               "konumdaki bitleri, borcu veya eldeyi gösteriyor.", KUCUK))
     for k in s["islemler"]:
         i1, b1, k1 = k["borc"]
         i2, b2, k2 = k["tum"]
-        h.append(P(f"<b>{k['M']} − {k['N']}</b>", ALT))
-        h.append(cikarma_kaydi("(a) Borç zinciri M − N", k1["M-N"],
-                               ["M_i", "N_i", "gelen borç", "fark D_i", "çıkan borç"]))
+        b.append(P(f"{k['M']} − {k['N']}", ALT))
+        b.append(kayit_blogu("Borç zinciri (M − N):", k1["M-N"],
+                             ["M<sub>i</sub>", "N<sub>i</sub>", "gelen borç", "fark D<sub>i</sub>", "çıkan borç"]))
         if "N-M" in k1:
-            h.append(cikarma_kaydi("(a) Son borç 1 → negatif; büyüklük için N − M", k1["N-M"],
-                                   ["N_i", "M_i", "gelen borç", "fark D_i", "çıkan borç"]))
-        h.append(cikarma_kaydi(f"(b) N' = {k2['N_1tum']}; M + N' + 1 (başlangıç eldesi 1), "
-                               f"son elde {k2['son_elde']}", k2["M+N'+1"],
-                               ["M_i", "N'_i", "gelen elde", "toplam", "çıkan elde"]))
+            b.append(kayit_blogu("Son borç 1 çıktı, sonuç negatif. Büyüklük için N − M:", k1["N-M"],
+                                 ["N<sub>i</sub>", "M<sub>i</sub>", "gelen borç", "fark D<sub>i</sub>",
+                                  "çıkan borç"]))
+        b.append(kayit_blogu(f"2 tümleyeni: N' = {k2['N_1tum']}, M + N' + 1 (başlangıç eldesi 1), "
+                             f"son elde {k2['son_elde']}:", k2["M+N'+1"],
+                             ["M<sub>i</sub>", "N'<sub>i</sub>", "gelen elde", "toplam", "çıkan elde"]))
         if "buyukluk" in k2:
-            h.append(cikarma_kaydi("(b) Son elde 0 → negatif; büyüklük = toplamın 2 tümleyeni "
-                                   "(terslenmiş toplam + 1)", k2["buyukluk"],
-                                   ["tersl. toplam", "0", "gelen elde", "büyüklük", "çıkan elde"]))
-        sonuc = "0 (sıfır, işaretsiz)" if i1 == "0" else ("−" if i1 == "-" else "+") + b1
-        h.append(P(f"Sonuç: <b>{sonuc}</b> (onlu {k['ref']}); iki yöntem aynı.", KUCUK))
+            b.append(kayit_blogu("Son elde 0 çıktı, sonuç negatif. Büyüklük = ters çevrilmiş toplam + 1:",
+                                 k2["buyukluk"], ["ters çevr. toplam", "eklenen", "gelen elde", "büyüklük",
+                                                  "çıkan elde"]))
+        b.append(P(f"Sonuç: <b>{gost(i1, b1)}</b> (onlu {isaretli(k['ref'])}). İki yöntem aynı sonucu verdi.",
+                   KUCUK))
 
     t, h1, h2, ilk = s["kapsamli"]
-    h.append(P("3. 256 operand çiftinin sınanması", ALT))
-    h.append(P(f"M, N ∈ 0…15 için 16 × 16 = <b>{t}</b> çift. Her çiftte işaret+büyüklük onlu referans "
-               f"M − N ile ve sıfır durumunun “0” olarak verilmesi ayrıca karşılaştırıldı. "
-               f"Borç yöntemi: <b>{h1} hata</b>; 2 tümleyeni yöntemi: <b>{h2} hata</b>. "
-               f"{'Uyumsuz çift bulunmadı; düzeltme gerekmedi.' if ilk is None else f'İlk hatalı çift: {ilk}.'}"))
+    b.append(P("3. 256 çiftin hepsi", ALT))
+    b.append(P(f"M ve N için 0–15 aralığındaki bütün {t} çifti iki yöntemle de hesapladım ve sonucu Python'da "
+               f"M − N ile karşılaştırdım. Sonucun 0 olduğu durumlarda işaretsiz “0” verilip verilmediğine de "
+               f"baktım. Borç yönteminde {h1}, 2 tümleyeni yönteminde {h2} hata çıktı. "
+               + ("Uyumsuz çift olmadığı için düzeltme gerekmedi." if ilk is None else f"İlk hatalı çift: {ilk}.")))
 
-    h.append(P("4. “Son elde yoksa sonuç mutlaka negatiftir” iddiası", ALT))
-    tum0, atilan = s["sifir_tumleyen"]
-    h.append(P(f"N'nin 2 tümleyeni ayrı bir adımda 4 bitle hesaplanırsa: 0000 → tersle 1111 → +1 → "
-               f"1 0000; sabit genişlikte taşan {atilan} atılır ve <b>2tüm(0000) = {tum0}</b> olur "
-               f"(sıfırın 2 tümleyeni yine sıfırdır). Sonra M + 0000 toplamında hiçbir zaman elde oluşmaz."))
+    b.append(P("4. “Son elde yoksa sonuç mutlaka negatiftir” iddiası", ALT))
+    tum0, _ = s["sifir_tumleyen"]
     yanlis = s["iddia_yanlis"]
-    h.append(P(f"Bu “ayrı tümle, sonra eldesiz topla” sürümüyle 256 çift tarandı: iddia <b>{len(yanlis)}</b> "
-               f"çiftte yanlış karar verdi ve hepsinde N = 0000 (M = 0000 … 1111). "
-               f"<b>En küçük karşı örnek: 0000 − 0000</b> → toplam 0000, son elde 0, fakat gerçek sonuç 0 "
-               f"(negatif değil). Benzer biçimde 0011 − 0000: son elde yok, sonuç +3."))
-    h.append(P("Karar kuralı: Çıkarma tek geçişte <b>M + N' + 1</b> olarak yapılmalı (“+1” başlangıç eldesi). "
-               "N = 0 iken N' = 1111 ve 1111 + 1 her zaman son elde üretir; doğru yöntemde N = 0 için "
-               + ", ".join(f"M={m} → son elde {c}" for m, c in s["dogru_n0"]) +
-               ". Böylece: <b>son elde 1 ⇔ M ≥ N</b> (sonuç ≥ 0; büyüklük toplamın kendisi, 0000 ise sıfır); "
-               "<b>son elde 0 ⇔ M &lt; N</b> (sonuç negatif; büyüklük toplamın 2 tümleyeni). "
-               "2 tümleyeni ayrı hesaplanacaksa N = 0 özel durumu (sonuç = M, işaret +/0) ayrıca ele alınmalıdır."))
-    return h
+    b.append(P(f"N'nin 2 tümleyenini ayrı bir adımda ve 4 bitle hesaplarsak: 0000'ı ters çevirince 1111, "
+               f"1 ekleyince 1 0000 oluyor. 4 bite sığmayan 1 atılıyor ve 0000'ın 2 tümleyeni yine "
+               f"<b>{tum0}</b> çıkıyor. Bundan sonra M + 0000 toplamında hiç elde oluşmuyor."))
+    b.append(P(f"Bu şekilde (önce tümleyeni ayrı al, sonra eldesiz topla) çalışan bir sürüm yazıp 256 çifti "
+               f"denedim. İddia {len(yanlis)} çiftte yanlış karar verdi ve hepsinde N = 0000 idi. "
+               f"<b>En küçük karşı örnek 0000 − 0000:</b> toplam 0000, son elde 0, ama sonuç 0 ve negatif "
+               f"değil. Aynı şekilde 0011 − 0000'da da elde yok, sonuç ise +3."))
+    b.append(P("Doğru karar kuralı: çıkarmayı tek seferde M + N' + 1 olarak yapmak, yani +1'i başlangıç "
+               "eldesi olarak vermek. N = 0 iken N' = 1111 olur ve 1111 + 1 her zaman elde üretir. Programda "
+               "M = 0000, 0011 ve 1111 için N = 0 denedim, üçünde de son elde 1 çıktı. Kural şu: "
+               "<b>son elde 1 ise M ≥ N</b> (sonuç pozitif veya sıfır, büyüklük toplamın kendisi), "
+               "<b>son elde 0 ise M &lt; N</b> (sonuç negatif, büyüklük toplamın 2 tümleyeni). Tümleyen ayrı "
+               "hesaplanacaksa N = 0 durumunu ayrıca ele almak gerekiyor."))
+    return b
 
 
 def yaprak3_bolum(s):
-    h = [PageBreak(), P("Deney Yaprağı 3 — Kısmi çarpımlarla ikili çarpıcı", BASLIK)]
-    h.append(P("1. Kısmi çarpım ve kaydırma kuralı", ALT))
-    h.append(P("Çarpan B'nin i konumundaki biti b<sub>i</sub> (sağdan 0'dan başlayarak) için kısmi çarpım "
-               "<b>PP<sub>i</sub> = (b<sub>i</sub> · A) ≪ i</b>: b<sub>i</sub> = 1 ise A, b<sub>i</sub> = 0 ise "
-               "n tane 0 alınır; sağına i adet 0 eklenerek i kez sola kaydırılır ve soldan sıfırla n+m bite "
-               "tamamlanır (başlangıç sıfırları korunur). Çarpım <b>P = Σ PP<sub>i</sub></b>; toplama, "
-               "Yaprak 1'deki bit düzeyindeki <i>topla()</i> ile n+m bitlik biriktiriciye yapılır. Ana sonuçta "
-               "hazır çarpma ya da tam sayıya dönüşüm kullanılmaz (<i>kismi_carpim(), carp()</i>, Ek A)."))
+    b = [PageBreak(), P("Deney Yaprağı 3", BASLIK), P("Kısmi çarpımlarla ikili çarpıcı", ALTBASLIK)]
+    b.append(P("1. Kısmi çarpım ve kaydırma kuralı", ALT))
+    b.append(P("Çarpanın i konumundaki biti b<sub>i</sub> ise (bitleri sağdan 0'dan başlayarak "
+               "numaralandırdım) kısmi çarpım PP<sub>i</sub> = b<sub>i</sub>·A·2<sup>i</sup> olur. "
+               "b<sub>i</sub> = 1 ise A'yı, 0 ise n tane sıfırı alıyorum, sağına i tane 0 ekleyerek i kez "
+               "sola kaydırıyorum ve soldan sıfırla doldurup n + m bite tamamlıyorum. Sonra kısmi çarpımları "
+               "Yaprak 1'deki toplayıcıyla n + m bitlik bir toplama ekliyorum. Asıl hesapta Python'un "
+               "çarpmasını veya sayıya çevirmeyi kullanmadım. Kod Ek A'da: kismi_carpim() ve carp()."))
 
-    h.append(P("2. Hizalı kısmi çarpım tabloları", ALT))
+    b.append(P("2. Kısmi çarpım tabloları", ALT))
     for t in s["tablolar"]:
         A, B = t["A"], t["B"]
         n, m = len(A), len(B)
-        veri = [["i", "b_i", f"PP_i ({n + m} bit)", "Onlu katkı"]]
+        veri = [["i", "b<sub>i</sub>", f"PP<sub>i</sub> ({n + m} bit)", "Onlu katkı"]]
         for (i, b_i, pp), katki in zip(t["kismiler"], t["katkilar"]):
-            veri.append([i, b_i, pp, f"{b_i}·{int(A, 2)}·2^{i} = {katki}"])
-        veri.append(["", "Σ", t["P"], f"{' + '.join(str(x) for x in t['katkilar'])} = {int(t['P'], 2)}"])
-        tb = tablo(veri, gen=[1 * cm, 1.2 * cm, 4.2 * cm, 5.4 * cm])
-        tb.setStyle(TableStyle([("FONT", (0, -1), (-1, -1), "DVB", 8.5),
-                                ("FONT", (2, 1), (2, -1), "DVM", 8.5)]))
-        h.append(KeepTogether([
-            P(f"<b>{A} × {B}</b> (n = {n}, m = {m}, çıktı {n + m} bit): "
-              f"P = <b>{t['P']}</b>. Bağımsız denetim: {int(A, 2)} × {int(B, 2)} = {t['ref']} "
-              f"{'✓' if int(t['P'], 2) == t['ref'] else '✗'}", KUCUK), tb, Spacer(1, 6)]))
+            veri.append([i, b_i, pp, f"{b_i}·{int(A, 2)}·2<sup>{i}</sup> = {katki}"])
+        veri.append(["", h("Toplam", True), h(t["P"], True),
+                     h(f"{' + '.join(str(x) for x in t['katkilar'])} = {int(t['P'], 2)}", True)])
+        uyum = "tuttu" if int(t["P"], 2) == t["ref"] else "tutmadı"
+        b.append(KeepTogether([
+            P(f"<b>{A} × {B}</b> (n = {n}, m = {m}, sonuç {n + m} bit): <b>{t['P']}</b>. "
+              f"Kontrol için onlu çarptım: {int(A, 2)} × {int(B, 2)} = {t['ref']}, {uyum}.", KUCUK),
+            tablo(veri, [1 * cm, 1.6 * cm, 4.2 * cm, 5.2 * cm]), Spacer(1, 7)]))
 
-    h.append(P("3. Testler ve sıfır kısmi çarpımı atlayan ikinci sürüm", ALT))
-    h.append(P("Sayım kuralı: biriktirici 0…0 ile başlar; biriktiriciye eklenen her kısmi çarpım bir toplama "
-               "çağrısıdır. Sürüm 1 her biti işler → <b>m</b> çağrı. Sürüm 2 b<sub>i</sub> = 0 olan satırları "
-               "atlar → <b>B'deki 1 sayısı</b> kadar çağrı (çarpan 0 ise hiç çağrı yok)."))
-    veri = [["Test", "A", "B", "Sürüm 1", "Sürüm 2", "Çağrı v1", "Çağrı v2", "Ref.", "Uyum"]]
+    b.append(P("3. Testler ve sıfır satırları atlayan ikinci sürüm", ALT))
+    b.append(P("Toplama sayısını şöyle saydım: toplam 0 ile başlıyor ve ona eklenen her kısmi çarpım bir "
+               "toplama sayılıyor. Birinci sürüm çarpanın bütün bitlerini işlediği için m toplama yapıyor. "
+               "İkinci sürüm b<sub>i</sub> = 0 olan satırları atlıyor, bu yüzden çarpandaki 1 sayısı kadar "
+               "toplama yapıyor (çarpan 0 ise hiç)."))
+    veri = [["Test", "A", "B", "Sürüm 1", "Sürüm 2", "Toplama<br/>sayısı 1", "Toplama<br/>sayısı 2",
+             "Onlu", "Uyuyor<br/>mu?"]]
     for ad, A, B, P1, P2, c1, c2, ref, ok in s["testler"]:
-        veri.append([ad, A, B, P1, P2, c1, c2, ref, "✓" if ok else "✗"])
-    h.append(tablo(veri, gen=[3.3 * cm, 1.3 * cm, 1.4 * cm, 2.2 * cm, 2.2 * cm, 1.4 * cm, 1.4 * cm,
-                              1.1 * cm, 1 * cm], kucuk=True))
-    t, hh = s["kapsamli"]
-    h.append(P(f"Ek tarama: n, m = 1…6 bitlik tüm operand çiftleri ({t} çarpım) için iki sürüm hem birbiriyle "
-               f"hem de onlu referansla karşılaştırıldı: <b>{hh} hata</b>. İki sürüm her zaman aynı sonucu verir; "
-               f"fark yalnızca toplama sayısındadır (sıfır satır eklemek sonucu değiştirmez).", KUCUK))
+        ad = ad.replace("2^2", "2<sup>2</sup>").replace("2^3", "2<sup>3</sup>").replace(" x ", " × ")
+        veri.append([Paragraph(ad, HUCRE_SOL), A, B, P1, P2, c1, c2, ref, "evet" if ok else "hayır"])
+    b.append(KeepTogether([
+        tablo(veri, [2.8 * cm, 1.2 * cm, 1.5 * cm, 2 * cm, 2 * cm, 1.8 * cm, 1.8 * cm, 1.2 * cm, 1.7 * cm]),
+        Spacer(1, 4),
+        P("İki sürüm bütün testlerde aynı sonucu verdi, sadece toplama sayıları farklı. Sıfır satırı "
+          "eklemek sonucu değiştirmediği için atlamak güvenli.", KUCUK)]))
 
-    h.append(P("4. Çıktı genişliği gerekçesi", ALT))
-    h.append(P("n bitlik en büyük işaretsiz sayı 2<sup>n</sup>−1, m bitlik 2<sup>m</sup>−1'dir. Üst sınır: "
-               "(2<sup>n</sup>−1)(2<sup>m</sup>−1) = 2<sup>n+m</sup> − 2<sup>n</sup> − 2<sup>m</sup> + 1 "
-               "&lt; 2<sup>n+m</sup> (n, m ≥ 1 için 2<sup>n</sup> + 2<sup>m</sup> − 1 &gt; 0). Dolayısıyla her "
-               "çarpım n+m bite sığar; örn. 1111 × 1111 = 225 = 11100001 (8 bit)."))
-    h.append(P("n+m−1 bit her zaman yetmez: <b>11 × 11 = 3 × 3 = 9 = 1001</b>; n+m−1 = 3 bit en çok 7'yi "
-               "gösterir, 9 için 4 bit gerekir. (n veya m = 1 iken çarpım ≤ 2<sup>n</sup>−1 olduğundan n+m−1 bit "
-               "yeter; bu yüzden en küçük karşı örnek n = m = 2'dir.) Öte yandan en soldaki bitleri 1 olan operandlarda "
-               "çarpım ≥ 2<sup>n−1</sup>·2<sup>m−1</sup> = 2<sup>n+m−2</sup> olduğundan en az n+m−1 bit her zaman gerekir."))
-    return h
+    b.append(P("4. Sonuç neden n + m bit?", ALT))
+    b.append(P("n bitlik en büyük sayı 2<sup>n</sup> − 1, m bitlik en büyük sayı 2<sup>m</sup> − 1. Bunları "
+               "çarpınca (2<sup>n</sup> − 1)(2<sup>m</sup> − 1) = 2<sup>n+m</sup> − 2<sup>n</sup> − "
+               "2<sup>m</sup> + 1 çıkıyor ve bu 2<sup>n+m</sup>'den küçük. Yani en büyük çarpım bile n + m "
+               "bite sığıyor. Örneğin 1111 × 1111 = 225 = 11100001 (8 bit)."))
+    b.append(P("n + m − 1 bit ise her zaman yetmiyor: <b>11 × 11 = 3 × 3 = 9 = 1001</b>. Burada "
+               "n + m − 1 = 3 bit ve 3 bitle en fazla 7 yazılabiliyor, 9 için 4 bit lazım. n veya m 1 olduğunda "
+               "çarpım 2<sup>n</sup> − 1'i geçmediği için n + m − 1 bit yetiyor; bu yüzden en küçük karşı "
+               "örnek n = m = 2 ile çıkıyor."))
+    return b
 
 
 def bolme_tablosu(adimlar, kesir=False):
-    bas = ["Kesir adımı" if kesir else "Adım", "İncelenen parça", "Bölüm biti", "Kalan"]
-    veri = [bas] + [[a, p, q, r] for a, p, q, r in adimlar]
-    return tablo(veri, gen=[2 * cm, 3.4 * cm, 2.2 * cm, 2.4 * cm])
+    veri = [["Kesir adımı" if kesir else "Adım", "İncelenen parça", "Bölüm biti", "Kalan"]]
+    veri += [list(a) for a in adimlar]
+    return tablo(veri, [2.2 * cm, 3.4 * cm, 2.2 * cm, 2.4 * cm])
 
 
 def yaprak4_bolum(s):
-    h = [PageBreak(), P("Deney Yaprağı 4 — Bölüm, kalan ve kesirli bölme", BASLIK)]
-    h.append(P("1. Soldan sağa bölme algoritması", ALT))
-    h.append(P("Kalan r = 0 ile başlanır. Bölünenin her biti için (soldan sağa): incelenen parça = "
-               "r'nin sağına sıradaki bitin indirilmesi (r·2 + bit). Parça ≥ d ise bölüm biti 1 ve r = parça − d "
-               "(bit düzeyinde borçlu çıkarma), değilse bölüm biti 0 ve r = parça. Karşılaştırma bit düzeyindedir "
-               "(önce anlamlı uzunluk, sonra soldan ilk farklı bit). Bölen yalnızca sıfırlardan oluşuyorsa "
-               "<i>ZeroDivisionError</i> ile açıkça reddedilir. Hazır bölme/kalan operatörü kullanılmaz "
-               "(<i>buyuk_esit(), bol()</i>, Ek A)."))
+    b = [PageBreak(), P("Deney Yaprağı 4", BASLIK), P("Bölüm, kalan ve kesirli bölme algoritması", ALTBASLIK)]
+    b.append(P("1. Soldan sağa bölme", ALT))
+    b.append(P("Kalanı 0 ile başlatıyorum ve bölünenin bitlerini soldan sağa tek tek indiriyorum. İncelenen "
+               "parça, kalanın sağına sıradaki bitin eklenmesiyle oluşuyor. Parça bölenden büyük veya eşitse "
+               "bölüme 1 yazıyorum ve parçadan böleni çıkarıyorum (Yaprak 2'deki borçlu çıkarma). Değilse "
+               "bölüme 0 yazıyorum ve parça olduğu gibi kalan oluyor. Karşılaştırmayı da bit düzeyinde "
+               "yaptım: baştaki sıfırları atıp önce uzunluklara, uzunluklar eşitse soldan ilk farklı bite "
+               "bakıyorum. Bölen sıfırsa fonksiyon hata verip duruyor. Asıl hesapta hazır bölme ve kalan "
+               "operatörü yok. Kod Ek A'da: buyuk_esit() ve bol()."))
 
-    h.append(P("2–3. Üç işlem: tam bölüm, kalan ve kesirli devam", ALT))
+    b.append(P("2 ve 3. Üç işlem, bölüm/kalan kontrolü ve kesirli devam", ALT))
     for r in s["islemler"]:
         D, d = r["D"], r["d"]
-        isaret = "=" if r["tam_mi"] else "≈"
-        kesirli = f"{r['Q']}.{r['kesir']}" if r["kesir"] else r["Q"]
-        blok = [P(f"<b>{D} ÷ {d}</b>  ({int(D, 2)} ÷ {int(d, 2)})", ALT),
-                bolme_tablosu(r["adimlar"]), Spacer(1, 3),
-                P(f"Q = <b>{r['Q']}</b> ({int(r['Q'], 2)}), R = <b>{r['R']}</b> ({int(r['R'], 2)}). "
-                  f"Kontrol 1: Q·d + R = {int(r['Q'], 2)}·{int(d, 2)} + {int(r['R'], 2)} = "
-                  f"{int(r['Q'], 2) * int(d, 2) + int(r['R'], 2)} = D {'✓' if r['kontrol1'] else '✗'}; "
-                  f"Kontrol 2: 0 ≤ R = {int(r['R'], 2)} &lt; d = {int(d, 2)} {'✓' if r['kontrol2'] else '✗'}. "
-                  f"Referans (//, %): {r['ref']}.", KUCUK)]
+        Qv, Rv, dv = int(r["Q"], 2), int(r["R"], 2), int(d, 2)
+        blok = [P(f"{D} ÷ {d} ({int(D, 2)} ÷ {dv})", ALT), bolme_tablosu(r["adimlar"]), Spacer(1, 4),
+                P(f"Q = <b>{r['Q']}</b> ({Qv}), R = <b>{r['R']}</b> ({Rv}). "
+                  f"Birinci kontrol: Q·d + R = {Qv}·{dv} + {Rv} = {Qv * dv + Rv}, bu D'ye eşit. "
+                  f"İkinci kontrol: 0 ≤ R = {Rv} &lt; d = {dv}, bu da sağlanıyor. "
+                  f"Python'un // ve % operatörleri de Q = {r['ref'][0]}, R = {r['ref'][1]} verdi.", KUCUK)]
+        b.append(KeepTogether(blok))
+        blok = []
         if r["kesir_adim"]:
             blok += [Spacer(1, 3), bolme_tablosu(r["kesir_adim"], kesir=True), Spacer(1, 3)]
-        tekrar = ""
-        if r["tekrar"]:
-            a, b, kal = r["tekrar"]
-            tekrar = (f" Kalan {kal} ({int(kal, 2)}) kesir adımı {a}'dan sonra adım {b}'de yeniden görüldü → "
-                      f"basamaklar “{r['kesir'][a:b]}” periyoduyla tekrar eder; kesir hiç bitmez, 8 basamakta kesildi.")
-        blok.append(P(f"Kesirli sonuç: {D} ÷ {d} {isaret} <b>{kesirli}</b>₂ "
-                      f"(onlu {isaret} {int(r['Q'], 2) + sum(int(b) / 2 ** (i + 1) for i, b in enumerate(r['kesir'])):.8g}; "
-                      f"gerçek {r['deger']:.8g}).{tekrar}", KUCUK))
-        h.append(KeepTogether(blok))
+        isaret = "=" if r["tam_mi"] else "≈"
+        kesirli = f"{r['Q']}.{r['kesir']}" if r["kesir"] else r["Q"]
+        yaklasik = Qv + sum(int(x) / 2 ** (i + 1) for i, x in enumerate(r["kesir"]))
+        if r["tam_mi"]:
+            not_ = "Kalan sıfırlandığı için kesirli kısım burada bitti, fazladan sıfır eklemedim."
+        else:
+            a, c, _ = r["tekrar"]
+            not_ = (f"Kalanlar 1, 10, 1, 10 diye tekrar ediyor; bir kalan ikinci kez gelince basamaklar da "
+                    f"tekrar etmeye başlıyor (“{r['kesir'][a:c]}” devri). Kesir hiç bitmiyor, 8 basamakta kestim.")
+        blok.append(P(f"Kesirli sonuç: {D} ÷ {d} {isaret} <b>{kesirli}</b> (ikili). Onlu olarak "
+                      f"{yaklasik:.8g}; gerçek değer {r['deger']:.8g}. {not_}", KUCUK))
+        b.append(KeepTogether(blok))
 
-    h.append(P("İki koşul neden birlikte gerekli?", ALT))
-    h.append(P("Yalnızca D = Q·d + R yetmez: 10110 ÷ 100 için Q = 100 (4), R = 110 (6) de 4·4 + 6 = 22 sağlar, "
-               "ama R ≥ d olduğundan bölüm eksiktir (Q = 0, R = D de her zaman sağlar). Yalnızca 0 ≤ R &lt; d de "
-               "yetmez: Q = 100, R = 10 bu koşulu sağlar fakat 4·4 + 2 = 18 ≠ 22. İki koşul birlikte (Q, R) çiftini "
-               "<b>tek</b> olarak belirler (bölme teoremi)."))
-    h.append(P("Durma koşulları (111 ÷ 11 üzerinden)", ALT))
-    h.append(P("<b>Tam bölme</b> bölünenin bit sayısı kadar adımda kesin olarak durur (111 için 3 adım): "
-               "indirilecek bit kalmadığında Q = 10, R = 1 kesinleşir. <b>Kesirli bölme</b> ise kalandan devam "
-               "eder (kalanın sağına 0 indirilir); (a) kalan 0 olursa sonuç tamamlanmıştır ve “=” yazılır, "
-               "(b) 8 basamağa ulaşılırsa kesilir ve “≈” yazılır. 111 ÷ 11'de kalanlar 1 → 10 → 1 → 10 … biçiminde "
-               "tekrar eder; bir kalan yeniden görüldüğünde kesir periyodiktir ve asla 0'a ulaşmaz: "
-               "7/3 = 10.0101…₂ ≈ 10.01010101₂. 10110 ÷ 100 ve 1101 ÷ 10 ise 1 kesir basamağında kalan 0 "
-               "olduğundan “=” ile tamamlanır (ek sıfır üretilmedi)."))
+    b.append(P("İki kontrol neden birlikte gerekli?", ALT))
+    b.append(P("Sadece D = Q·d + R'ye bakmak yetmiyor. 10110 ÷ 100 için Q = 100 (4), R = 110 (6) alırsam "
+               "4·4 + 6 = 22 tutuyor ama R ≥ d olduğu için bölme bitmemiş demektir (Q = 0, R = D zaten her "
+               "zaman tutar). Sadece 0 ≤ R &lt; d'ye bakmak da yetmiyor: Q = 100, R = 10 bu koşulu sağlıyor "
+               "ama 4·4 + 2 = 18, 22 değil. İki koşul birlikte sağlanınca Q ve R tek türlü belirleniyor."))
+    b.append(P("Durma koşulları (111 ÷ 11)", ALT))
+    b.append(P("Tam bölme, bölünende indirilecek bit kalmayınca duruyor. 111'in 3 biti olduğu için 3 adımda "
+               "Q = 10, R = 1 kesinleşiyor. Kesirli bölmede ise kalanın sağına 0 ekleyerek devam ediyorum. "
+               "Kalan 0 olursa sonuç tamamlanmış oluyor ve “=” yazıyorum; 8 basamağa ulaşırsam kesip "
+               "“≈” yazıyorum. 111 ÷ 11'de kalanlar 1 ve 10 arasında gidip geliyor, hiç 0 olmuyor: "
+               "7/3 = 10.0101... (ikili), 8 basamakla 10.01010101. 10110 ÷ 100 ve 1101 ÷ 10'da ise ilk kesir "
+               "basamağında kalan 0 olduğu için sonuç “=” ile bitti."))
 
-    h.append(P("4. Sınır testleri", ALT))
-    veri = [["Durum", "D", "d", "Beklenen Q, R", "Gözlenen Q, R", "Uyum"]]
+    b.append(P("4. Sınır testleri", ALT))
+    yaz = lambda x: ", ".join(x) if isinstance(x, tuple) else x
+    veri = [["Durum", "D", "d", "Beklenen Q, R", "Program", "Uyuyor mu?"]]
     for ad, D, d, bek, goz, ok in s["sinir"]:
-        yaz = lambda x: ", ".join(x) if isinstance(x, tuple) else x
-        veri.append([ad, D, d, yaz(bek), Paragraph(yaz(goz), KUCUK), "✓" if ok else "✗"])
-    h.append(tablo(veri, gen=[3.4 * cm, 1.5 * cm, 1.3 * cm, 2.6 * cm, 6 * cm, 1.1 * cm]))
-    h.append(Spacer(1, 4))
-    h.append(P("Bölümde sıfır bitinin yanlış atılması: <i>bol_hatali()</i> bölen sığmadığında bölüme 0 yazmayı "
-               "atlar. Bu hata baştaki sıfırlarda zararsızdır, ama ara sıfırlarda bölümü bozar:"))
-    veri = [["D ÷ d", "Doğru Q", "Hatalı Q", "Hatalı R", "Q·d + R = D ?"]]
+        veri.append([Paragraph(ad, HUCRE_SOL), D, d, yaz(bek), Paragraph(escape(yaz(goz)), HUCRE_SOL),
+                     "evet" if ok else "hayır"])
+    b.append(tablo(veri, [3.4 * cm, 1.4 * cm, 1.3 * cm, 2.4 * cm, 5.9 * cm, 1.8 * cm]))
+    b.append(Spacer(1, 6))
+    b.append(P("Bölümde sıfır bitinin yanlışlıkla atılmasını göstermek için bol_hatali() diye bir sürüm "
+               "yazdım: bölen sığmadığında bölüme 0 yazmayı unutuyor. Baştaki sıfırlarda bunun zararı yok, "
+               "ama aradaki sıfırlar kaybolunca bölüm değişiyor:"))
+    veri = [["D ÷ d", "Doğru Q", "Hatalı Q", "Hatalı R", "Q·d + R kontrolü"]]
     for D, d, Q, Qh, Rh, ok in s["hatali"]:
+        top = int(Qh, 2) * int(d, 2) + int(Rh, 2)
         veri.append([f"{D} ÷ {d}", Q, Qh, Rh,
-                     f"{int(Qh, 2)}·{int(d, 2)}+{int(Rh, 2)} = {int(Qh, 2) * int(d, 2) + int(Rh, 2)} "
-                     f"{'=' if ok else '≠'} {int(D, 2)} → {'geçer' if ok else 'YAKALANDI'}"])
-    h.append(tablo(veri, gen=[2.8 * cm, 2 * cm, 2 * cm, 2 * cm, 6.4 * cm]))
-    h.append(P("Örn. 10110 ÷ 100: doğru bölüm 101'dir; ortadaki 0 atılınca 11 (3) çıkar ve 3·4 + 2 = 14 ≠ 22 "
-               "olduğundan D = Q·d + R kontrolü hatayı yakalar (kalan doğru olduğu için R &lt; d kontrolü tek "
-               "başına yakalayamaz — iki kontrolün birlikte gerekliliğine bir örnek daha).", KUCUK))
-    t, hh = s["kapsamli"]
-    h.append(P(f"Ek tarama: D 1–8 bit, d = 1…15 tüm kombinasyonlar ({t} bölme) // ve % ile karşılaştırıldı: "
-               f"<b>{hh} hata</b>.", KUCUK))
-    return h
+                     f"{int(Qh, 2)}·{int(d, 2)} + {int(Rh, 2)} = {top}, D = {int(D, 2)}: "
+                     + ("tuttu" if ok else "hata yakalandı")])
+    b.append(KeepTogether([tablo(veri, [2.8 * cm, 1.8 * cm, 1.8 * cm, 1.8 * cm, 6.6 * cm]), Spacer(1, 4),
+                           P("Örneğin 10110 ÷ 100'de doğru bölüm 101. Ortadaki 0 atılınca 11 (3) çıkıyor ve 3·4 + 2 = 14 "
+               "olduğu için D = Q·d + R kontrolü hatayı yakalıyor. Kalan doğru kaldığı için R &lt; d kontrolü "
+               "tek başına bunu fark edemezdi; bu da iki kontrolün neden birlikte gerektiğine bir örnek.", KUCUK)]))
+    return b
 
 
 def kisa_cevap_bolumu():
-    h = [PageBreak(), P("Kısa cevap ve doğrulama notları (deney yapraklarına yazılanlar)", BASLIK)]
+    b = [PageBreak(), P("Kısa cevaplar", BASLIK),
+         P("Deney yapraklarındaki “Kısa cevap ve doğrulama notları” alanlarına yazdıklarım", ALTBASLIK)]
     for no in range(1, 5):
-        h.append(P(f"Deney Yaprağı {no}", ALT))
-        veri = [[P(f"<b>{ad}</b>", KUCUK), P(escape(metin, quote=False), KUCUK)] for ad, metin in KISA_CEVAPLAR[no]]
-        t = Table(veri, colWidths=[3.6 * cm, 13.4 * cm])
-        t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#8899AA")),
+        b.append(P(f"Deney Yaprağı {no}", ALT))
+        veri = [[P(f"<b>{ad}</b>", KUCUK), P(escape(metin, quote=False), KUCUK)]
+                for ad, metin in KISA_CEVAPLAR[no]]
+        t = Table(veri, colWidths=[3.8 * cm, 13.2 * cm])
+        t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, CERCEVE),
+                               ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F6F9")),
                                ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        h.append(t)
-    return h
+        b.append(t)
+    return b
 
 
 def kod_eki():
-    h = [PageBreak(), P("Ek A — Kod (Python 3)", BASLIK),
-         P("Çalıştırma: <font name='DVM'>python3 testler.py</font> (tüm testler), "
-           "<font name='DVM'>python3 rapor_olustur.py</font> (bu dosya).", KUCUK)]
+    b = [PageBreak(), P("Ek A: Kod (Python 3)", BASLIK),
+         P("ikili.py dört yaprağın algoritmalarını, testler.py istenen testleri içeriyor. "
+           "Testleri çalıştırmak için: python3 testler.py", ALTBASLIK)]
     for ad in ("ikili.py", "testler.py"):
         with open(os.path.join(BURASI, ad), encoding="utf-8") as f:
-            h.append(P(ad, ALT))
-            h.append(Preformatted(f.read(), KOD))
-    return h
+            b.append(P(ad, ALT))
+            b.append(Preformatted(f.read().rstrip(), KOD))
+    return b
+
+
+def kapak():
+    def orta(boyut, kalin=False):
+        return ParagraphStyle("k", fontName="DVB" if kalin else "DV", fontSize=boyut,
+                              leading=boyut * 1.4, alignment=TA_CENTER)
+    bilgi = Table([[P("<b>Ad Soyad</b>"), P(kisisel.AD_SOYAD)],
+                   [P("<b>Öğrenci No</b>"), P(kisisel.OGRENCI_NO)],
+                   [P("<b>Şube / Grup</b>"), P(kisisel.SUBE_GRUP)],
+                   [P("<b>Tarih</b>"), P(kisisel.TARIH)]], colWidths=[3.6 * cm, 7 * cm])
+    bilgi.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 0.5, CERCEVE),
+                               ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+    icerik = ["Deney Yaprağı 1: İkili toplayıcı", "Deney Yaprağı 2: Borç alma ve 2 tümleyeniyle çıkarma",
+              "Deney Yaprağı 3: Kısmi çarpımlarla çarpıcı", "Deney Yaprağı 4: Bölüm, kalan ve kesirli bölme",
+              "Kısa cevaplar", "Ek A: Kod"]
+    return [Spacer(1, 3.5 * cm), P("MARMARA ÜNİVERSİTESİ", orta(13, True)),
+            P("Teknoloji Fakültesi, Bilgisayar Mühendisliği Bölümü", orta(10.5)),
+            Spacer(1, 2 * cm), P("Mantık Devreleri", orta(22, True)),
+            P("Ders 3: İkili Aritmetik", orta(14)), Spacer(1, 0.3 * cm),
+            P("Deney yaprakları 1–4 için ek dosya", orta(11)),
+            Spacer(1, 2.2 * cm), bilgi, Spacer(1, 2 * cm),
+            P("<b>İçindekiler</b>", orta(10.5)), P("<br/>".join(icerik), orta(9.5))]
 
 
 def sayfa_alti(c, doc):
     c.saveState()
     c.setFont("DV", 7.5)
-    c.drawString(2 * cm, 1.2 * cm, "Mantık Devreleri — Ders 3 / İkili Aritmetik — Deney 3 ek dosyası")
-    c.drawRightString(A4[0] - 2 * cm, 1.2 * cm, f"Sayfa {doc.page}")
+    c.setFillColor(colors.HexColor("#5A6472"))
+    c.drawString(2 * cm, 1.2 * cm,
+                 f"Mantık Devreleri, Ders 3 ek dosyası · {kisisel.AD_SOYAD} · {kisisel.OGRENCI_NO}")
+    c.drawRightString(A4[0] - 2 * cm, 1.2 * cm, str(doc.page))
     c.restoreState()
-
-
-def kapak():
-    return [Spacer(1, 5 * cm), P("MARMARA ÜNİVERSİTESİ", KAPAK),
-            P("Teknoloji Fakültesi / Bilgisayar Mühendisliği Bölümü",
-              ParagraphStyle("k2", parent=GOVDE, alignment=TA_CENTER, fontSize=11)),
-            Spacer(1, 1 * cm), P("MANTIK DEVRELERİ — Ders 3 / İkili Aritmetik", KAPAK),
-            P("Deney Yaprakları 1–4: Ek Dosya (kod, işlem kayıtları, test özetleri, gerekçeler)",
-              ParagraphStyle("k3", parent=GOVDE, alignment=TA_CENTER, fontSize=11)),
-            Spacer(1, 2 * cm),
-            tablo([["Ad Soyad", " " * 40], ["Öğrenci No", ""], ["Şube / Grup", ""], ["Tarih", ""]],
-                  gen=[4 * cm, 8 * cm], baslik_satir=0),
-            Spacer(1, 1.5 * cm),
-            P("İçindekiler: Yaprak 1 — İkili toplayıcı · Yaprak 2 — Çıkarma · Yaprak 3 — Çarpıcı · "
-              "Yaprak 4 — Bölme · Kısa cevaplar · Ek A — Kod",
-              ParagraphStyle("k4", parent=GOVDE, alignment=TA_CENTER))]
 
 
 def ek_dosya_olustur(cikti):
     s = hepsi()
     doc = SimpleDocTemplate(cikti, pagesize=A4, leftMargin=2 * cm, rightMargin=2 * cm,
                             topMargin=1.8 * cm, bottomMargin=1.8 * cm,
-                            title="Deney 3 - Ek Dosya", author="")
+                            title="Mantık Devreleri Deney 3 Ek Dosya", author=kisisel.AD_SOYAD)
     hikaye = kapak() + [PageBreak()]
     hikaye += yaprak1_bolum(s[1]) + yaprak2_bolum(s[2]) + yaprak3_bolum(s[3]) + yaprak4_bolum(s[4])
     hikaye += kisa_cevap_bolumu() + kod_eki()
